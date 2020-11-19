@@ -1,0 +1,200 @@
+<?php
+
+namespace App\Model\CarModels;
+
+use App\Model\CarProperty;
+use App\Model\Filter;
+use App\Model\FilterDescription;
+use App\Model\ImageUpload;
+use App\Model\Price;
+use App\Traits\StoreImageTrait;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Intervention\Image\ImageManagerStatic as Image;
+use Symfony\Component\Console\Input\Input;
+
+class Car extends Model
+{
+    protected $table = 'cars';
+    protected $fillable = [
+        'name', 'image', 'manufacturer_id'
+    ];
+
+    public $timestamps = false;
+    public $primaryKey = 'id';
+
+    const HEIGHT = 1000;
+    const WIDTH = 1000;
+    const IMAGE_FOLDER = 'cars';
+    use StoreImageTrait;
+
+    public function images()
+    {
+        return $this->belongsToMany(ImageUpload::class, 'car_images', 'car_id', 'image_id');
+    }
+
+
+    public function status()
+    {
+        return $this->hasMany(CarStatus::class);
+    }
+
+    public function prices()
+    {
+        return $this->hasOne(Price::class, 'car_id');
+    }
+
+
+
+    public function filters()
+    {
+        return $this->belongsToMany(
+            Filter::class,
+            'car_filter',
+            'car_id',
+            'filter_id'
+        );
+    }
+    public function filterTranslate()
+    {
+
+     $filter = $this->
+            join('car_filter', 'cars.id', '=', 'car_filter.car_id')
+          ->join('filter', 'filter.filter_id', '=', 'car_filter.filter_id')
+          ->get();
+     return $filter;
+    }
+    public function filterTranslateIds()
+    {
+        $filter = Car::select('car_filter.filter_id')
+       ->join('car_filter', 'cars.id', '=', 'car_filter.car_id')
+            ->get();
+        return $filter->unique('filter_id')->pluck('filter_id');
+    }
+    public function carFilterTranslateByIds($ids)
+    {
+
+        $filter = Filter::join('filter_description', 'filter_description.filter_id', '=', 'filter.filter_id')
+            ->whereIn('filter_description.filter_id',$ids)
+            ->where('filter_description.language_id', session()->get('language_id'))->get();
+        return $filter;
+    }
+
+
+
+    public function setFilter($ids)
+    {
+        if ($ids == null) {
+            return;
+        }
+        $this->filters()->sync($ids);
+    }
+    public function setImages($ids)
+    {
+        if ($ids == null) {
+            return;
+        }
+        $this->images()->sync($ids);
+    }
+
+    public function getFilters($id = 1)
+    {
+
+
+        if (!$this->filters->isEmpty()){
+            $ids = $this->filters->pluck('filter_id')->all();
+           $filter = FilterDescription::whereIn('filter_id', $ids)->where('language_id', $id)->pluck('filter_id')->all();
+          return  $filter;
+        }
+    }
+    public function getCarFilter()
+    {
+
+        if (!$this->filters->isEmpty()){
+            return  $this->filters;
+        }
+    }
+    public function getCarFilterDescription()
+    {
+
+
+        if (!$this->filters->isEmpty()){
+            $ids = $this->filters->pluck('filter_id')->all();
+            $filter = FilterDescription::whereIn('filter_id', $ids)->where('language_id', session()->get('language_id'))->get();
+            return  $filter;
+
+        }
+    }
+
+    public function edit($fields)
+    {
+       $this->fill($fields);
+       $this->save();
+    }
+
+    public function getImage()
+    {
+
+        $path= '/uploads/' . self::IMAGE_FOLDER . '/' . $this->image;
+        if (File::exists( public_path() . $path)){
+            return $path;
+
+        }else{
+            return asset('/img/not-found.jpg');
+        }
+    }
+
+    public function manufacturer()
+    {
+        return $this->belongsTo(Manufactures::class, 'manufacturer_id');
+    }
+
+    public function getTargetImage()
+    {
+        return $this->image;
+    }
+
+    public function uploadImage($image)
+    {
+        $filename = $this->storeImage($image, self::WIDTH, self::HEIGHT, self::IMAGE_FOLDER, $this->getTargetImage());
+        $this->image = $filename;
+        $this->save();
+
+    }
+
+    public function remove()
+    {
+        $imagesAll = $this->images()->get();
+        $path = public_path() . '/uploads/cars/images/';
+
+        if ($imagesAll){
+
+            foreach ($imagesAll as $item){
+
+                $filename = $item->filename;
+                $path .= $filename;
+                if (file_exists($path)) {
+                    unlink($path);
+                }
+            }
+
+        }
+        $this->images()->delete();
+        $this->deleteImage(self::IMAGE_FOLDER, $this->image);
+        $this->delete();
+    }
+
+    public function setProperties($ids)
+    {
+        if ($ids == null){return;}
+        $this->properties()->sync($ids);
+    }
+
+
+
+
+
+}
